@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>רעידות אדמה בעולם</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🌍 רעידות אדמה בעולם</h1>
+    <p class="sub">נתונים חיים מהמכון הגיאולוגי של ארה״ב (USGS)</p>
+  </header>
+
+  <section class="controls">
+    <label>תקופה
+      <select id="period">
+        <option value="hour">השעה האחרונה</option>
+        <option value="day" selected>24 השעות האחרונות</option>
+        <option value="week">השבוע האחרון</option>
+        <option value="month">החודש האחרון</option>
+      </select>
+    </label>
+    <label>עוצמה מינימלית
+      <select id="level">
+        <option value="all">הכול</option>
+        <option value="1.0">1.0+</option>
+        <option value="2.5" selected>2.5+</option>
+        <option value="4.5">4.5+</option>
+        <option value="significant">משמעותיות בלבד</option>
+      </select>
+    </label>
+    <button id="refresh">🔄 רענון</button>
+  </section>
+
+  <section class="stats" id="stats"></section>
+  <p id="status" class="status" role="status"></p>
+
+  <main class="layout">
+    <div id="map"></div>
+    <ul id="list" class="list"></ul>
+  </main>
+
+  <footer>
+    מקור הנתונים: <a href="https://earthquake.usgs.gov/earthquakes/feed/" target="_blank" rel="noopener">USGS Earthquake API</a> — חינמי, ללא מפתח
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
