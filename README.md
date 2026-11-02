@@ -20,4 +20,10 @@ A phone compass built on the browser's Device Orientation API, which reads the p
 magnetometer. It also shows GPS coordinates from the Geolocation API.
 Can be added to the home screen like an app.
 
+**Computer viewer:** https://ronenkla.github.io/AI-Homework/compass/viewer.html
+
+Open it on a computer and scan the QR code with the phone. The phone then streams its
+heading and tilt live to the computer, through a free public MQTT server
+([HiveMQ](https://www.hivemq.com/mqtt/public-mqtt-broker/), no key needed).
+
 Files are in the [`compass`](compass/) folder.

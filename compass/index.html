@@ -16,6 +16,7 @@
       --muted: #8fa3b8;
       --north: #ff4d4d;
       --accent: #5bc0eb;
+      --ok: #4cd18a;
     }
 
     * { box-sizing: border-box; }
@@ -67,7 +68,6 @@
     .status { color: var(--muted); text-align: center; max-width: 340px; min-height: 2.5em; margin: 0; }
 
     button {
-      margin-top: 10px;
       padding: 14px 28px;
       font-size: 1.1rem;
       font-weight: 600;
@@ -77,8 +77,50 @@
       color: #062033;
       cursor: pointer;
     }
+    #start { margin-top: 10px; }
 
     .location { margin-top: 14px; text-align: center; color: var(--muted); font-size: 0.95rem; direction: ltr; }
+
+    /* Broadcast to computer */
+    .link {
+      margin-top: 18px;
+      width: min(88vw, 420px);
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      text-align: center;
+    }
+    .link-title { color: var(--muted); font-size: 0.95rem; }
+    .link-row { display: flex; gap: 8px; width: 100%; }
+    .link-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 10px 12px;
+      font-size: 1.2rem;
+      letter-spacing: 0.2em;
+      text-align: center;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--dial);
+      color: var(--text);
+      direction: ltr;
+    }
+    .link-row button { padding: 10px 18px; font-size: 1rem; }
+    .live { color: var(--ok); font-weight: 600; }
+    .live::before {
+      content: "";
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--ok);
+      margin-inline-end: 6px;
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse { 50% { opacity: 0.3; } }
   </style>
 </head>
 <body>
@@ -97,77 +139,36 @@
   <button id="start">הפעלת מצפן</button>
   <div class="location" id="location"></div>
 
+  <section class="link">
+    <div class="link-title">שידור למחשב: הקלידו את הקוד שמופיע במחשב, או סרקו את קוד ה־QR</div>
+    <div class="link-row">
+      <input id="code" inputmode="numeric" maxlength="6" placeholder="------" autocomplete="off">
+      <button id="connect">חיבור</button>
+    </div>
+    <div id="linkStatus"></div>
+  </section>
+
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="shared.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
+    const setHeading = createDial($("dial"));
 
-    const DIRECTIONS = ["צפון", "צפון־מזרח", "מזרח", "דרום־מזרח", "דרום", "דרום־מערב", "מערב", "צפון־מערב"];
-    const CARDINALS = { 0: "צ", 90: "מז", 180: "ד", 270: "מע" };
-
-    // Draw the dial: a tick every 5°, longer every 30°, letters at N/E/S/W
-    function drawDial() {
-      const ns = "http://www.w3.org/2000/svg";
-      const svg = $("dial");
-      const add = (tag, attrs, text) => {
-        const el = document.createElementNS(ns, tag);
-        for (const k in attrs) el.setAttribute(k, attrs[k]);
-        if (text) el.textContent = text;
-        svg.appendChild(el);
-        return el;
-      };
-      const css = getComputedStyle(document.documentElement);
-      const color = (name) => css.getPropertyValue(name).trim();
-
-      add("circle", { r: 98, fill: color("--dial"), stroke: color("--line"), "stroke-width": 2 });
-
-      for (let a = 0; a < 360; a += 5) {
-        const major = a % 30 === 0;
-        const rad = (a - 90) * Math.PI / 180;
-        const r1 = 94, r2 = major ? 82 : 88;
-        add("line", {
-          x1: r1 * Math.cos(rad), y1: r1 * Math.sin(rad),
-          x2: r2 * Math.cos(rad), y2: r2 * Math.sin(rad),
-          stroke: a === 0 ? color("--north") : major ? color("--text") : color("--muted"),
-          "stroke-width": major ? 2 : 1,
-        });
-        const label = CARDINALS[a] ?? (major ? String(a) : null);
-        if (label) {
-          const big = a in CARDINALS;
-          const rl = big ? 66 : 72;
-          add("text", {
-            x: rl * Math.cos(rad), y: rl * Math.sin(rad),
-            fill: a === 0 ? color("--north") : big ? color("--text") : color("--muted"),
-            "font-size": big ? 15 : 8,
-            "font-weight": big ? 700 : 400,
-            "text-anchor": "middle",
-            "dominant-baseline": "central",
-            transform: `rotate(${a} ${rl * Math.cos(rad)} ${rl * Math.sin(rad)})`,
-          }, label);
-        }
-      }
-
-      // Needle: red half points north, white half south
-      add("polygon", { points: "0,-50 7,0 -7,0", fill: color("--north") });
-      add("polygon", { points: "0,50 7,0 -7,0", fill: color("--text") });
-      add("circle", { r: 4, fill: color("--bg") });
-    }
-
-    // Rotate the dial so north on the dial matches real north.
-    // Keeps a running angle so the dial never spins the long way around 0°/360°.
-    let rotation = 0;
-    let last = null;
     let gotReading = false;
+    let started = false;
 
-    function showHeading(heading) {
-      heading = (heading % 360 + 360) % 360;
+    // Last sensor reading, sent to the computer when linked
+    const reading = { h: 0, b: 0, g: 0 };
+
+    function showHeading(heading, beta, gamma) {
       gotReading = true;
-
-      if (last === null) rotation = heading;
-      else rotation += ((heading - last + 540) % 360) - 180;
-      last = heading;
-
-      $("dial").style.transform = `rotate(${-rotation}deg)`;
-      $("deg").textContent = Math.round(heading) % 360 + "°";
-      $("dir").textContent = DIRECTIONS[Math.round(heading / 45) % 8];
+      const { degrees, name } = setHeading(heading);
+      $("deg").textContent = degrees + "°";
+      $("dir").textContent = name;
+      reading.h = degrees;
+      reading.b = Math.round(beta ?? 0);
+      reading.g = Math.round(gamma ?? 0);
+      send();
     }
 
     const screenAngle = () => (screen.orientation && screen.orientation.angle) || window.orientation || 0;
@@ -175,15 +176,17 @@
     // Android (Chrome, Samsung Internet): alpha is measured from true north
     function onAbsolute(e) {
       if (e.alpha === null) return;
-      showHeading(360 - e.alpha + screenAngle());
+      showHeading(360 - e.alpha + screenAngle(), e.beta, e.gamma);
     }
 
     // iPhone (Safari): gives the compass heading directly
     function onIOS(e) {
-      if (e.webkitCompassHeading !== undefined) showHeading(e.webkitCompassHeading + screenAngle());
+      if (e.webkitCompassHeading !== undefined) showHeading(e.webkitCompassHeading + screenAngle(), e.beta, e.gamma);
     }
 
     async function start() {
+      if (started) return;
+      started = true;
       $("start").hidden = true;
       $("status").textContent = "מחפש חיישן מצפן...";
 
@@ -197,6 +200,7 @@
             if (await DeviceOrientationEvent.requestPermission() !== "granted") {
               $("status").textContent = "לא ניתנה הרשאה לחיישנים. רעננו את הדף ואשרו את הבקשה.";
               $("start").hidden = false;
+              started = false;
               return;
             }
           } catch {}
@@ -216,7 +220,7 @@
       showLocation();
     }
 
-    // Bonus: show GPS coordinates under the compass
+    // Bonus: show GPS coordinates under the compass (stays on the phone, not sent)
     function showLocation() {
       if (!navigator.geolocation) return;
       navigator.geolocation.watchPosition(
@@ -230,8 +234,48 @@
       );
     }
 
-    drawDial();
+    // ---- Broadcast to the computer ----
+    let client = null;
+    let topic = null;
+    let lastSent = 0;
+
+    function send() {
+      if (!client || !client.connected) return;
+      const now = Date.now();
+      if (now - lastSent < 66) return; // about 15 updates a second
+      lastSent = now;
+      client.publish(topic, JSON.stringify(reading));
+    }
+
+    function link(code) {
+      code = code.replace(/\D/g, "");
+      if (code.length !== 6) {
+        $("linkStatus").textContent = "הקוד צריך להיות 6 ספרות";
+        return;
+      }
+      if (client) client.end(true);
+      topic = topicFor(code);
+      $("linkStatus").textContent = "מתחבר...";
+      client = connectMqtt();
+      client.on("connect", () => {
+        $("linkStatus").innerHTML = `<span class="live">משדר למחשב · קוד ${code}</span>`;
+        client.publish(topic, JSON.stringify({ ...reading, hello: true }));
+      });
+      client.on("offline", () => { $("linkStatus").textContent = "אין חיבור לאינטרנט, מנסה שוב..."; });
+      client.on("error", () => { $("linkStatus").textContent = "החיבור נכשל, מנסה שוב..."; });
+      start();
+    }
+
     $("start").addEventListener("click", start);
+    $("connect").addEventListener("click", () => link($("code").value));
+
+    // Opened from the QR code on the computer: ?pair=123456
+    const pair = new URLSearchParams(location.search).get("pair");
+    if (pair) {
+      $("code").value = pair;
+      $("status").textContent = "לחצו על \"הפעלת מצפן\" כדי להתחיל לשדר למחשב";
+      $("start").addEventListener("click", () => link(pair), { once: true });
+    }
   </script>
 </body>
 </html>
